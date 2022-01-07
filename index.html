@@ -1,0 +1,565 @@
+<html>
+	<head>
+		<title>Neuralrep</title>
+		<style>
+			body { margin: 0; }
+			canvas { width: 100%; height: 100% }
+			#tooltip {
+				position: absolute;
+				color: white;
+				font-size: 24px;
+				-webkit-text-stroke: 1px black;
+				pointer-events: none;
+			}
+			#filters span, input {
+				pointer-events: none;
+				user-select: none;
+			}
+			#filters {
+				user-select: none;
+				margin: auto;
+			}
+			#tops {
+				float: left;
+			}
+			#mids {
+				float: right;
+			}
+			#botdiv {
+				margin-top: 450px;
+			}
+			#done {
+				margin-top: 10px;
+				margin-right: 15px;
+				width: 140px;
+				height: 30px;
+				float:right;
+			}
+			#all, #none {
+				margin-top: 5px;
+				margin-right: 32px;
+				width: 98px;
+				float: right;
+			}
+		</style>
+	</head>
+	<body>
+		<script src="data/three.js"></script>
+		<script src="data/detector.js"></script>
+		<script src="data/trackball.js"></script>
+		<script src="data/drag.js"></script>
+		<script src="data/jquery.js"></script>
+		<script src="data/jquery-ui.min.js"></script>
+		<script src='data/dat.gui.js'></script>
+		<script src='data/data.js'></script>
+		<link rel=stylesheet href="data/jquery-ui.min.css"/>
+		<script>
+			var list = ["Възраст на кредитоискателя","Спестявания на кредитоискателя","Нетни приходи на кредитоискателя","Недвижима собственост в лева","Недвижима собственост в кв.м.",
+		"Брой хора в недвижимата собственост","Тип на колата на длъжника","Образование на длъжника","Семеен статус на кредитоискателя","Тип предприятие на кредитоискателя",
+		"Сектор в който работи кредитоискателя","Тип длъжност","Източник на приходите на кредитоискателя","Общ стаж на кредитоискателя","Длъжност в банката",
+		"Област на кредитополучателя","Целева група на банката","Тип на кредита","Размер на кредита","Лихва","Валута на кредита","Срок на погасяване на кредита в месеци"]
+			var container, stats;
+			var camera, controls, scene, renderer;
+			var sprite1;
+			var canvas1, context1, texture1;
+			var objects = [];
+			var tops = [], mids = [], lines = [];
+			var mouse = { x: 0, y: 0 }, INTERSECTED;
+			var bot;
+			var weights = [];
+			var selected = [];
+			var group = new THREE.Object3D();
+			$(function() {
+				$("#filters").dialog({
+					autoOpen: false,
+					show: {
+						effect: "blind",
+						duration: 300
+					},
+					hide: {
+						effect: "blind",
+						duration: 300
+					},
+					resizable: true,
+					modal: true,
+					width: "200px",
+					position:['middle',20],
+					closeOnEscape: true,
+
+				});
+			});
+			init();
+			animate();
+			function init() {
+				container = document.createElement('div');
+				document.body.appendChild(container);
+				camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 20000);
+				camera.position.z = 1000;
+				renderer = new THREE.WebGLRenderer({antialias: true});
+				renderer.setPixelRatio(window.devicePixelRatio);
+				renderer.setSize(window.innerWidth, window.innerHeight);
+				container.appendChild(renderer.domElement);
+				controls = new THREE.TrackballControls(camera, renderer.domElement);
+				controls.rotateSpeed = 1.0;
+				controls.zoomSpeed = 1.2;
+				controls.panSpeed = 0.8;
+				controls.noZoom = false;
+				controls.noPan = false;
+				controls.staticMoving = true;
+				controls.dynamicDampingFactor = 0.3;
+				scene = new THREE.Scene();
+				scene.background = new THREE.Color(0x000000);
+				var lightPos = {};
+				var directionalLight = new THREE.DirectionalLight( 0xffffff, 2 );
+				lightPos.x = camera.position.x + 600
+				lightPos.y = camera.position.y + 700
+				lightPos.z = camera.position.z;
+				directionalLight.position.copy(lightPos);
+				scene.add( directionalLight );
+				controls.addEventListener("change", function() {
+					lightPos.x = camera.position.x + 600
+					lightPos.y = camera.position.y + 700
+					lightPos.z = camera.position.z;
+					directionalLight.position.copy(lightPos);
+				});
+				var dragControls = new THREE.DragControls(objects, camera, renderer.domElement);
+				dragControls.addEventListener('dragstart', function (event) {controls.enabled = false;});
+				dragControls.addEventListener('dragend', function (event) { controls.enabled = true; } );
+				dragControls.addEventListener('drag', function (event) {
+					if (event.object.selected) {
+						for (i = 0; i < selected.length; i++) {
+								selected[i][0].position.x = event.object.position.x + i*50
+								selected[i][0].position.y = event.object.position.y
+								if (selected[i][0].pos == "mid" && selected[i][0].tobot) {
+									selected[i][0].lines[selected[i][0].botline].geometry.vertices[0].x = selected[i][0].position.x;
+									selected[i][0].lines[selected[i][0].botline].geometry.vertices[0].y = selected[i][0].position.y;
+									selected[i][0].lines[selected[i][0].botline].geometry.vertices[0].z = selected[i][0].position.z;
+									selected[i][0].lines[selected[i][0].botline].geometry.verticesNeedUpdate = true;
+									for (j = 0; j < selected[i][0].lines.length; j++) {
+										if (j != selected[i][0].botline) {
+											selected[i][0].lines[j].geometry.vertices[1].x = selected[i][0].position.x;
+											selected[i][0].lines[j].geometry.vertices[1].y = selected[i][0].position.y;
+											selected[i][0].lines[j].geometry.vertices[1].z = selected[i][0].position.z;
+											selected[i][0].lines[j].geometry.verticesNeedUpdate = true;
+										}
+									}
+								}
+								if (selected[i][0].pos == "top") {
+									for (j = 0; j < selected[i][0].lines.length; j++) {
+										selected[i][0].lines[j].geometry.vertices[0].x = selected[i][0].position.x;
+										selected[i][0].lines[j].geometry.vertices[0].y = selected[i][0].position.y;
+										selected[i][0].lines[j].geometry.vertices[0].z = selected[i][0].position.z;
+										selected[i][0].lines[j].geometry.verticesNeedUpdate = true;
+									}
+								} else if ((selected[i][0].pos == "mid" && !selected[i][0].tobot) || selected[i][0].pos == "bot") {
+									for (j = 0; j < selected[i][0].lines.length; j++) {
+										selected[i][0].lines[j].geometry.vertices[1].x = selected[i][0].position.x;
+										selected[i][0].lines[j].geometry.vertices[1].y = selected[i][0].position.y;
+										selected[i][0].lines[j].geometry.vertices[1].z = selected[i][0].position.z;
+										selected[i][0].lines[j].geometry.verticesNeedUpdate = true;
+									}
+								}
+						}
+					}
+					if (event.object.pos == "mid" && event.object.tobot) {
+						event.object.lines[event.object.botline].geometry.vertices[0].x = event.object.position.x;
+						event.object.lines[event.object.botline].geometry.vertices[0].y = event.object.position.y;
+						event.object.lines[event.object.botline].geometry.vertices[0].z = event.object.position.z;
+						event.object.lines[event.object.botline].geometry.verticesNeedUpdate = true;
+						for (i = 0; i < event.object.lines.length; i++) {
+							if (i != event.object.botline) {
+								event.object.lines[i].geometry.vertices[1].x = event.object.position.x;
+								event.object.lines[i].geometry.vertices[1].y = event.object.position.y;
+								event.object.lines[i].geometry.vertices[1].z = event.object.position.z;
+								event.object.lines[i].geometry.verticesNeedUpdate = true;
+							}
+						}
+					}
+					if (event.object.pos == "top") {
+						for (i = 0; i < event.object.lines.length; i++) {
+							event.object.lines[i].geometry.vertices[0].x = event.object.position.x;
+							event.object.lines[i].geometry.vertices[0].y = event.object.position.y;
+							event.object.lines[i].geometry.vertices[0].z = event.object.position.z;
+							event.object.lines[i].geometry.verticesNeedUpdate = true;
+						}
+					} else if ((event.object.pos == "mid" && !event.object.tobot) || event.object.pos == "bot") {
+						for (i = 0; i < event.object.lines.length; i++) {
+							event.object.lines[i].geometry.vertices[1].x = event.object.position.x;
+							event.object.lines[i].geometry.vertices[1].y = event.object.position.y;
+							event.object.lines[i].geometry.vertices[1].z = event.object.position.z;
+							event.object.lines[i].geometry.verticesNeedUpdate = true;
+						}
+					}
+				});
+				window.addEventListener('resize', onWindowResize, false);
+				document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+				$("body").prepend("<span id='tooltip'>Hello</span>")
+				loadNodes();
+				reverseLink();
+				colorWeights();
+				scene.add(group);
+				var gui = new dat.GUI();
+				var parameters = {
+					a: function() {
+						$("#filters").dialog("open");
+					},
+				};
+				gui.add( parameters, 'a' ).name('Filter');
+				gui.open();
+				checkNodes();
+			}
+			function loadNodes() {
+				var geometry = new THREE.SphereGeometry(20, 32, 32);
+				for (var i = 0; i < midNodes.length; i ++) {
+					var object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial( { color: Math.random() * 0xffffff } ) );
+					object.name = midNodes[i].name;
+					object.position.x = -925 + (i*50)
+					object.pos = "mid";
+					object.lines = [];
+					scene.add(object);
+					mids.push(object);
+					objects.push(object);
+				}
+				for (var i = 0; i < topNodes.length; i ++) {
+					var object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial( { color: Math.random() * 0xffffff } ) );
+					object.name = topNodes[i].name;
+					object.position.x = -550 + (i*50)
+					object.position.y = 400
+					object.pos = "top";
+					object.lines = [];
+					scene.add(object);
+					tops.push(object);
+					objects.push(object);
+					link(object, topNodes[i].links)
+				}
+				bot = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial( { color: Math.random() * 0xffffff } ) );
+				bot.name = "Scoring";
+				bot.position.y = -400
+				bot.pos = "bot";
+				bot.lines = [];
+				scene.add(bot);
+				objects.push(bot);
+			}
+			function link(node, links) {
+				for (var i = 0; i < links.length; i++) {
+					var material = new THREE.LineBasicMaterial({
+						color: 0x0000ff,
+					});
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push(
+						new THREE.Vector3(node.position.x,node.position.y,0),
+						new THREE.Vector3(mids[links[i].id].position.x,mids[links[i].id].position.y,0)
+					);
+					var line = new THREE.Line(geometry, material);
+					line.name = links[i].weight;
+					node.lines.push(line);
+					mids[links[i].id].lines.push(line);
+					lines.push(line);
+					scene.add(line);
+					weights.push(links[i].weight);
+				}
+			}
+			function colorWeights() {
+				var min = Math.min.apply(Math, weights);
+				var max = Math.max.apply(Math, weights);
+				var range = max-min;
+				for (var i = 0; i < lines.length; i++) {
+					if (lines[i].name) {
+						var percent = ((lines[i].name - min) * 100) / range
+						lines[i].material.color = new THREE.Color(getColor(percent));
+					}
+				}
+			}
+			function getColor(value){
+				value = value/100;
+		    var hue=((1-value)*240).toString(10);
+		    return ["hsl(",hue,",100%,50%)"].join("");
+			}
+			function reverseLink() {
+				for (var i = 0; i < mids.length; i++) {
+					var node1 = mids[i];
+					node1.tobot = true;
+					node1.botline = node1.lines.length;
+					var material = new THREE.LineBasicMaterial({
+						color: 0x0000ff
+					});
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push(
+						new THREE.Vector3(node1.position.x,node1.position.y,0),
+						new THREE.Vector3(bot.position.x,bot.position.y,0)
+					);
+					var line = new THREE.Line(geometry, material);
+					line.scored = true;
+					node1.botobject = line
+					node1.lines.push(line);
+					bot.lines.push(line);
+					lines.push(line);
+					scene.add(line);
+				}
+			}
+			function roundTo(n, digits) {
+		    var negative = false;
+		    if (digits === undefined) {
+		        digits = 0;
+		    }
+		        if( n < 0) {
+		        negative = true;
+		      n = n * -1;
+		    }
+		    var multiplicator = Math.pow(10, digits);
+		    n = parseFloat((n * multiplicator).toFixed(11));
+		    n = (Math.round(n) / multiplicator).toFixed(2);
+		    if( negative ) {
+		        n = (n * -1).toFixed(2);
+		    }
+		    return n;
+			}
+			function onDocumentMouseMove(event) {
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+				$("#tooltip").css({left: event.clientX, top: event.clientY - 30});
+			}
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+			}
+			function animate() {
+				requestAnimationFrame(animate);
+				render();
+				update();
+			}
+			function render() {
+				controls.update();
+				renderer.render(scene, camera);
+			}
+			function update() {
+			var vector = new THREE.Vector3(mouse.x, mouse.y, 1);
+			vector.unproject(camera);
+			var ray = new THREE.Raycaster(camera.position, vector.sub( camera.position ).normalize());
+			var intersects = ray.intersectObjects( scene.children );
+			if (intersects.length > 0) {
+				if (intersects[0].object != INTERSECTED) {
+					if (INTERSECTED)
+						INTERSECTED.material.color.setHex( INTERSECTED.currentHex );
+					INTERSECTED = intersects[ 0 ].object;
+					INTERSECTED.currentHex = INTERSECTED.material.color.getHex();
+					INTERSECTED.material.color.setHex(0xffff00);
+				}
+				if (intersects[0].object.name)
+					$("#tooltip").text(intersects[0].object.name);
+				else
+					$("#tooltip").text(" ");
+			}
+			else {
+				if (INTERSECTED) {
+					INTERSECTED.material.color.setHex(INTERSECTED.currentHex);
+				if (INTERSECTED.selected)
+					INTERSECTED.material.color.setHex(0xffff00);
+				}
+				INTERSECTED = null;
+				$("#tooltip").text(" ");
+			}
+		}
+		$("body").click(function(e) {
+			var vector = new THREE.Vector3(mouse.x, mouse.y, 1);
+			vector.unproject(camera);
+			var ray = new THREE.Raycaster(camera.position, vector.sub( camera.position ).normalize());
+			var intersects = ray.intersectObjects( scene.children );
+			if (intersects.length > 0) {
+				if (INTERSECTED && e.shiftKey) {
+					removelink(intersects[0].object);
+					$(INTERSECTED.checkbox).prop("checked", false);
+				}
+				if (INTERSECTED && e.ctrlKey) {
+					if (!INTERSECTED.pos)
+						return;
+					for (var i = 0; i < selected.length; i++) {
+						if (INTERSECTED == selected[i][0]) {
+							INTERSECTED.selected = false;
+							INTERSECTED.currentHex = selected[i][1];
+							INTERSECTED.material.color.setHex(selected[i][1]);
+							selected.splice(i, 1);
+							return;
+						}
+					}
+					selected.push([INTERSECTED, INTERSECTED.currentHex]);
+					INTERSECTED.selected = true;
+					INTERSECTED.currentHex = INTERSECTED.material.color.getHex();
+					INTERSECTED.material.color.setHex(0xffff00);
+				}
+			}
+		});
+		function addlink(node) {
+			for (i = 0; i < node.lines.length; i++) {
+				var line = node.lines[i]
+				if (line.original == node.uuid)
+					line.removed = false;
+				if (!line.removed)
+					line.traverse(function(line){line.visible = true})
+			}
+			checkNodes();
+		}
+		function removelink(node) {
+			for (i = 0; i < node.lines.length; i++) {
+				var line = node.lines[i]
+				line.removed = true;
+				line.original = node.uuid;
+				line.traverse(function(line){line.visible = false})
+			}
+			checkNodes(node);
+		}
+		function checkNodes(node) {
+			for (i = 0; i < tops.length; i++) {
+				var removedCounter = 0;
+				tops[i].visible = true;
+				if (tops[i].lines.length == 0) {
+					tops[i].visible = false;
+
+				} else {
+					for (j = 0; j < tops[i].lines.length; j++) {
+						if (tops[i].lines[j].removed) {
+							tops[i].lines[j].visible = false;
+							removedCounter++;
+						}
+					}
+					if (tops[i].lines.length == removedCounter) {
+						tops[i].visible = false;
+					}
+				}
+			}
+			for (i = 0; i < mids.length; i++) {
+				var removedCounter = 0;
+				mids[i].visible = true;
+				if (mids[i].lines.length <= 1) {
+					mids[i].visible = false;
+					for (j = 0; j < mids[i].lines.length; j++) {
+						mids[i].lines[j].visible = false;
+					}
+				}
+				for (j = 0; j < mids[i].lines.length; j++) {
+					if (mids[i].lines[j].removed) {
+						mids[i].lines[j].visible = false;
+						removedCounter++
+					}
+				}
+				if ((mids[i].lines.length == removedCounter+1) && (!mids[i].botobject.removed)) {
+					mids[i].visible = false;
+					for (j = 0; j < mids[i].lines.length; j++) {
+						mids[i].lines[j].visible = false;
+					}
+				} else if (mids[i].lines.length == removedCounter){
+					mids[i].visible = false;
+					for (j = 0; j < mids[i].lines.length; j++) {
+						mids[i].lines[j].visible = false;
+					}
+				}
+			}
+			var removedCounter = 0;
+			bot.visible = true;
+			for (i = 0; i < bot.lines.length; i++) {
+				if (bot.lines[i].removed) {
+				  bot.lines[i].visible = false;
+					removedCounter++;
+				}
+			}
+			if (bot.lines.length == removedCounter) {
+				bot.visible = false;
+			}
+		}
+
+		$(function() {
+			for (var i = 0; i < tops.length; i++) {
+				$("#tops").append('<div id="topdiv' + (i+1) + '"><span>Input ' + (i+1) + '</span><input type="checkbox" id="topcheck' + (i+1) + '" value="top' + (i+1) + '" checked><br></div>')
+				$("#tops").on( "click", "#topdiv" + (i+1), function(event) {
+					var num = event.currentTarget.id.replace(/\D/g,'');
+					$("#topcheck" + num).prop("checked", !$("#topcheck" + num).prop('checked'));
+					changeProp();
+				});
+				tops[i].checkbox = "#topcheck" + (i+1);
+			}
+			for (var i = 0; i < mids.length; i++) {
+				$("#mids").append('<div id="middiv' + (i+1) + '"><span>Unit ' + (i+1) + '</span><input type="checkbox" id="midcheck' + (i+1) + '" value="mid' + (i+1) + '" checked><br></div>')
+				$("#mids").on( "click", "#middiv" + (i+1), function(event) {
+					var num = event.currentTarget.id.replace(/\D/g,'');
+					$("#midcheck" + num).prop("checked", !$("#midcheck" + num).prop('checked'));
+					changeProp();
+				});
+				mids[i].checkbox = "#midcheck" + (i+1);
+			}
+			$("#filters").append('<div id="botdiv"><span>Scoring</span><input type="checkbox" id="botcheck" value="bot" checked><br></div>');
+			$("#botdiv").click(function() {
+				$("#botcheck").prop("checked", !$("#botcheck").prop('checked'));
+				changeProp();
+			})
+			$("#filters").append('<button id="all">Show all</button>');
+			$("#all").click(function() {
+				for (i = 0; i < list.length; i++) {
+					$("#topcheck" + (i+1)).prop("checked", true);
+				}
+				for (i = 0; i < 37; i++) {
+					$("#midcheck" + (i+1)).prop("checked", true);
+				}
+				$("#botcheck").prop("checked", true);
+				changeProp();
+			});
+			$("#filters").append('<button id="none">Hide all</button>');
+			$("#none").click(function() {
+				for (i = 0; i < list.length; i++) {
+					$("#topcheck" + (i+1)).prop("checked", false);
+				}
+				for (i = 0; i < 37; i++) {
+					$("#midcheck" + (i+1)).prop("checked", false);
+				}
+				$("#botcheck").prop("checked", false);
+				changeProp();
+			});
+			$("#filters").append('<button id="done">Done</button>');
+			$("#done").click(function() {
+			  $(this).closest('.ui-dialog-content').dialog('close');
+				for (i = 0; i < tops.length; i++) {
+					if ($("#topcheck" + (i+1)).prop('checked')) {
+						addlink(tops[i]);
+					} else {
+						removelink(tops[i]);
+					}
+				}
+				for (i = 0; i < mids.length; i++) {
+					if ($("#midcheck" + (i+1)).prop('checked')) {
+						addlink(mids[i]);
+					} else {
+						removelink(mids[i]);
+					}
+				}
+				if ($("#botcheck").prop('checked')) {
+					addlink(bot);
+				} else {
+					removelink(bot);
+				}
+			});
+			function changeProp() {
+				for (i = 0; i < tops.length; i++) {
+					if ($("#topcheck" + (i+1)).prop('checked')) {
+						addlink(tops[i]);
+					} else {
+						removelink(tops[i]);
+					}
+				}
+				for (i = 0; i < mids.length; i++) {
+					if ($("#midcheck" + (i+1)).prop('checked')) {
+						addlink(mids[i]);
+					} else {
+						removelink(mids[i]);
+					}
+				}
+				if ($("#botcheck").prop('checked')) {
+					addlink(bot);
+				} else {
+					removelink(bot);
+				}
+			}
+		})
+		</script>
+		<div id="filters"><div id="tops"></div><div id="mids"></div></div>
+	</body>
+</html>
